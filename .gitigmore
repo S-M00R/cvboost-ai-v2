@@ -1,0 +1,5 @@
+venv/
+.env
+cvboost.db
+__pycache__/
+*.pyc
