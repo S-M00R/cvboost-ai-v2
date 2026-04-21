@@ -14,125 +14,127 @@ Base.metadata.create_all(bind=engine)
 
 
 # -------------------------
-# HOME
+# SYSTEM ROUTES
 # -------------------------
 @app.get("/")
 def home():
     return {"status": "CVBoost AI is running 🚀"}
 
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 # =========================
 # AUTH ROUTES
 # =========================
-
-@app.post("/register")
+@app.post("/auth/register")
 def register(email: str = Form(...), password: str = Form(...)):
-
     db = SessionLocal()
+    try:
+        existing_user = db.query(User).filter(User.email == email).first()
 
-    existing_user = db.query(User).filter(User.email == email).first()
+        if existing_user:
+            raise HTTPException(status_code=400, detail="User already exists")
 
-    if existing_user:
+        new_user = User(
+            email=email,
+            password=hash_password(password)
+        )
+
+        db.add(new_user)
+        db.commit()
+
+        return {"message": "User created successfully"}
+
+    finally:
         db.close()
-        raise HTTPException(status_code=400, detail="User already exists")
-
-    new_user = User(
-        email=email,
-        password=hash_password(password)
-    )
-
-    db.add(new_user)
-    db.commit()
-    db.close()
-
-    return {"message": "User created successfully"}
 
 
-@app.post("/login")
+@app.post("/auth/login")
 def login(email: str = Form(...), password: str = Form(...)):
-
     db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == email).first()
 
-    user = db.query(User).filter(User.email == email).first()
+        if not user or not verify_password(password, user.password):
+            raise HTTPException(status_code=400, detail="Invalid credentials")
 
-    db.close()
+        return {
+            "user_id": user.id,
+            "email": user.email
+        }
 
-    if not user or not verify_password(password, user.password):
-        raise HTTPException(status_code=400, detail="Invalid credentials")
-
-    return {
-        "user_id": user.id,
-        "email": user.email
-    }
+    finally:
+        db.close()
 
 
 # =========================
 # AI CV OPTIMIZER
 # =========================
-
-@app.post("/optimize-cv")
+@app.post("/cv/optimize")
 async def optimize_cv(
     file: UploadFile = File(...),
     job_description: str = Form(...),
     user_id: int = Form(...)
 ):
-
     try:
-        # 1. Extract CV text
         cv_text = extract_text_from_pdf(file)
 
-        # 2. AI analysis
         ai_result = generate_cv_improvements(cv_text, job_description)
 
-        # 3. Convert to dict safely
-        parsed = json.loads(ai_result)
+        try:
+            parsed = json.loads(ai_result)
+        except:
+            raise HTTPException(status_code=500, detail="AI response format error")
 
-        # 4. Save in DB (linked to user)
         db = SessionLocal()
+        try:
+            record = CVAnalysis(
+                filename=file.filename,
+                match_score=int(parsed.get("match_score", 0)),
+                missing_skills=str(parsed.get("missing_skills", [])),
+                summary=parsed.get("summary_rewrite", ""),
+                cover_letter=parsed.get("cover_letter", ""),
+                user_id=user_id
+            )
 
-        record = CVAnalysis(
-            filename=file.filename,
-            match_score=int(parsed.get("match_score", 0)),
-            missing_skills=str(parsed.get("missing_skills", [])),
-            summary=parsed.get("summary_rewrite", ""),
-            cover_letter=parsed.get("cover_letter", ""),
-            user_id=user_id
-        )
+            db.add(record)
+            db.commit()
 
-        db.add(record)
-        db.commit()
-        db.close()
+        finally:
+            db.close()
 
         return {"result": parsed}
 
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =========================
 # USER HISTORY
 # =========================
-
-@app.get("/history/{user_id}")
+@app.get("/cv/history/{user_id}")
 def get_history(user_id: int):
-
     db = SessionLocal()
+    try:
+        records = db.query(CVAnalysis).filter(CVAnalysis.user_id == user_id).all()
 
-    records = db.query(CVAnalysis).filter(CVAnalysis.user_id == user_id).all()
+        return {
+            "history": [
+                {
+                    "id": r.id,
+                    "filename": r.filename,
+                    "match_score": r.match_score,
+                    "missing_skills": r.missing_skills,
+                    "summary": r.summary,
+                    "cover_letter": r.cover_letter,
+                    "created_at": r.created_at
+                }
+                for r in records
+            ]
+        }
 
-    db.close()
-
-    return {
-        "history": [
-            {
-                "id": r.id,
-                "filename": r.filename,
-                "match_score": r.match_score,
-                "missing_skills": r.missing_skills,
-                "summary": r.summary,
-                "cover_letter": r.cover_letter,
-                "created_at": r.created_at
-            }
-            for r in records
-        ]
-    }
+    finally:
+        db.close()
