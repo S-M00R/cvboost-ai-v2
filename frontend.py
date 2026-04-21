@@ -3,7 +3,9 @@ import requests
 
 st.set_page_config(page_title="CVBoost AI", layout="wide")
 
-API_URL = "http://127.0.0.1:8000"
+# 👉 Change this for production
+API_URL = "https://cvboost-backend-sqoy.onrender.com"
+
 
 # =========================
 # SESSION STATE
@@ -16,7 +18,7 @@ if "email" not in st.session_state:
 
 
 # =========================
-# SAFE JSON PARSER
+# HELPERS
 # =========================
 def safe_json(response):
     try:
@@ -26,24 +28,24 @@ def safe_json(response):
 
 
 # =========================
-# AUTH FUNCTIONS
+# API CALLS
 # =========================
 def register(email, password):
     return requests.post(
-        f"{API_URL}/register",
+        f"{API_URL}/auth/register",
         data={"email": email, "password": password}
     )
 
 
 def login(email, password):
     return requests.post(
-        f"{API_URL}/login",
+        f"{API_URL}/auth/login",
         data={"email": email, "password": password}
     )
 
 
 # =========================
-# LOGIN / REGISTER SCREEN
+# AUTH SCREEN
 # =========================
 if st.session_state.user_id is None:
 
@@ -51,7 +53,7 @@ if st.session_state.user_id is None:
 
     tab1, tab2 = st.tabs(["Login", "Register"])
 
-    # -------- LOGIN --------
+    # ---------------- LOGIN ----------------
     with tab1:
         email = st.text_input("Email", key="login_email")
         password = st.text_input("Password", type="password", key="login_password")
@@ -60,17 +62,15 @@ if st.session_state.user_id is None:
             res = login(email, password)
             data = safe_json(res)
 
-            st.write("Status:", res.status_code)  # debug
-
             if res.status_code == 200 and "user_id" in data:
                 st.session_state.user_id = data["user_id"]
                 st.session_state.email = data["email"]
-                st.success("Login successful!")
+                st.success("Login successful 🚀")
                 st.rerun()
             else:
                 st.error(data.get("detail", data.get("error", "Login failed")))
 
-    # -------- REGISTER --------
+    # ---------------- REGISTER ----------------
     with tab2:
         email = st.text_input("Email", key="reg_email")
         password = st.text_input("Password", type="password", key="reg_password")
@@ -88,7 +88,7 @@ if st.session_state.user_id is None:
 
 
 # =========================
-# MAIN APP (LOGGED IN)
+# DASHBOARD
 # =========================
 st.title("🚀 CVBoost AI Dashboard")
 st.caption(f"Logged in as: {st.session_state.email}")
@@ -100,22 +100,23 @@ if st.button("Logout"):
 
 st.divider()
 
+
 # =========================
 # CV OPTIMIZER
 # =========================
 st.subheader("📄 CV Optimizer")
 
-uploaded_file = st.file_uploader("Upload your CV (PDF)", type=["pdf"])
+uploaded_file = st.file_uploader("Upload CV (PDF)", type=["pdf"])
 job_description = st.text_area("Paste Job Description")
 
 if st.button("Optimize CV"):
 
     if uploaded_file and job_description:
 
-        with st.spinner("Analyzing CV..."):
+        with st.spinner("Analyzing CV with AI... 🤖"):
 
             response = requests.post(
-                f"{API_URL}/optimize-cv",
+                f"{API_URL}/cv/optimize",
                 files={"file": uploaded_file},
                 data={
                     "job_description": job_description,
@@ -131,22 +132,25 @@ if st.button("Optimize CV"):
 
                 st.success("Analysis Complete 🚀")
 
-                st.metric("Match Score", f"{result['match_score']}%")
+                st.metric("Match Score", f"{result.get('match_score', 0)}%")
 
                 st.write("### 🧠 Missing Skills")
-                st.write(result["missing_skills"])
+                st.write(result.get("missing_skills", []))
 
                 st.write("### ✍️ Summary")
-                st.write(result["summary_rewrite"])
+                st.write(result.get("summary_rewrite", ""))
 
                 st.write("### 💡 Suggestions")
-                st.write(result["improvement_suggestions"])
+                st.write(result.get("improvement_suggestions", []))
 
                 st.write("### 📄 Cover Letter")
-                st.text_area("", result["cover_letter"], height=200)
+                st.text_area("", result.get("cover_letter", ""), height=200)
 
             else:
-                st.error(data.get("error", "Backend error"))
+                st.error(data.get("detail", data.get("error", "Backend error")))
+
+    else:
+        st.warning("Please upload a CV and enter a job description.")
 
 
 # =========================
@@ -158,7 +162,7 @@ st.subheader("📊 My CV History")
 if st.button("Load History"):
 
     response = requests.get(
-        f"{API_URL}/history/{st.session_state.user_id}"
+        f"{API_URL}/cv/history/{st.session_state.user_id}"
     )
 
     data = safe_json(response)
@@ -167,7 +171,7 @@ if st.button("Load History"):
 
         history = data["history"]
 
-        if len(history) == 0:
+        if not history:
             st.info("No history yet.")
 
         for item in reversed(history):
